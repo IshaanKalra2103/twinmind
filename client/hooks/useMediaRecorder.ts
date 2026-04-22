@@ -48,6 +48,11 @@ export function useMediaRecorder({
   const cycleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cycleStartedAtRef = useRef<string | null>(null);
   const activeRef = useRef(false); // sync flag for async callbacks
+  // Resolves when the current cycle's chunk has finished uploading via onChunk.
+  // Created lazily (on demand by flushNow or on cycle start) and cleared once
+  // the cycle's onstop handler has awaited onChunk.
+  const flushResolveRef = useRef<(() => void) | null>(null);
+  const flushPromiseRef = useRef<Promise<void> | null>(null);
 
   const clearTimer = () => {
     if (cycleTimerRef.current) {
@@ -105,15 +110,24 @@ export function useMediaRecorder({
       const blob = new Blob(chunks, {
         type: rec.mimeType || mimeType || "audio/webm",
       });
-      if (blob.size > 0) {
-        void Promise.resolve(
-          onChunk({
-            blob,
-            startedAt,
-            mimeType: blob.type,
-          })
-        ).catch((err) => onError?.(err));
-      }
+      // Capture (and detach) this cycle's flush resolver so a new cycle can
+      // install its own without racing this one.
+      const resolveFlush = flushResolveRef.current;
+      flushResolveRef.current = null;
+      flushPromiseRef.current = null;
+      const uploaded =
+        blob.size > 0
+          ? Promise.resolve(
+              onChunk({
+                blob,
+                startedAt,
+                mimeType: blob.type,
+              })
+            ).catch((err) => {
+              onError?.(err);
+            })
+          : Promise.resolve();
+      void uploaded.then(() => resolveFlush?.());
       // If still active, start the next cycle immediately.
       if (activeRef.current) startCycle();
     };
@@ -162,6 +176,39 @@ export function useMediaRecorder({
     teardownStream();
   }, []);
 
+  /**
+   * Force-flush the current ~30s cycle on demand: stop the recorder now so it
+   * emits a chunk, let the existing onstop path upload it via onChunk, and
+   * resolve once that upload settles. If not recording, resolves immediately.
+   * The active cycle restarts automatically (same stop/restart path as the
+   * timed cycle — see decision-004).
+   */
+  const flushNow = useCallback(async (): Promise<void> => {
+    if (!activeRef.current) return;
+    const rec = recorderRef.current;
+    if (!rec || rec.state === "inactive") return;
+    // Install a flush promise for this cycle if one isn't already pending.
+    if (!flushPromiseRef.current) {
+      flushPromiseRef.current = new Promise<void>((resolve) => {
+        flushResolveRef.current = resolve;
+      });
+    }
+    const promise = flushPromiseRef.current;
+    // Cancel the scheduled timer — we're stopping now instead.
+    clearTimer();
+    try {
+      rec.stop();
+    } catch (err) {
+      onError?.(err);
+      // If stop threw, we won't get onstop; resolve to avoid a hang.
+      flushResolveRef.current?.();
+      flushResolveRef.current = null;
+      flushPromiseRef.current = null;
+      return;
+    }
+    await promise;
+  }, [onError]);
+
   // Cleanup on unmount.
   useEffect(() => {
     return () => {
@@ -171,5 +218,5 @@ export function useMediaRecorder({
     };
   }, []);
 
-  return { isRecording, start, stop };
+  return { isRecording, start, stop, flushNow };
 }

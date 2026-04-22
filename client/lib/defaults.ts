@@ -27,10 +27,13 @@ Allowed "type" values:
 
 Rules:
 1. Cover at least 2 different types across the 3 cards unless the context plainly demands otherwise (e.g. a direct question was just asked — then "answer" is OK to dominate).
-2. "preview" must be self-contained and <=140 chars — it has to deliver value WITHOUT a click.
-3. "rationale" <=100 chars, grounded in the recent transcript (quote short phrases when you can).
-4. Do not repeat previews from the previous batch hint.
-5. No greetings, no meta-commentary, no markdown, no trailing text — strict JSON only.`;
+2. "preview" must be self-contained and <=140 chars — deliver value WITHOUT a click. Specific, never generic. NO meeting-facilitation cliches ("propose a round-table", "do a temperature check", "set an agenda") unless the transcript directly invites them.
+3. HARD GROUNDING. Every card must respond to something specific that was said in the last ~60 seconds of transcript. Every "rationale" (<=100 chars) MUST end with a verbatim quote of <=12 words from the transcript in backticks, e.g. \`...the migration blew up yesterday\`. No quote, no card.
+4. THIN TRANSCRIPT FALLBACK. If the transcript contains fewer than ~15 substantive words of dialogue (silence, hallucinations, or single short utterances only), return 3 "waiting" cards:
+   {"type":"clarifying_info","preview":"Waiting for conversation — specific suggestions appear once ~30s of dialogue is on the transcript.","rationale":"Transcript too thin to ground a suggestion."}
+   ...repeated three times, with small phrasing variation in the preview if you like. Do NOT invent generic meeting advice.
+5. Do not repeat previews from the previous batch hint.
+6. No greetings, no meta-commentary, no markdown, no trailing text — strict JSON only.`;
 
 export const DEFAULT_EXPANDED_ANSWER_PROMPT = `The user just tapped a suggestion card in a live-meeting copilot. They want the longer-form answer behind the card.
 

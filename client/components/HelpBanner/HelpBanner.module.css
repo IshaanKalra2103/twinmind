@@ -6,6 +6,38 @@
   line-height: 1.5;
   border: 1px solid var(--border);
   color: #cfd3dc;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.message {
+  flex: 1;
+  min-width: 0;
+}
+
+.action {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  border: 1px solid currentColor;
+  cursor: pointer;
+  line-height: 1.3;
+  opacity: 0.9;
+}
+
+.action:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.action:focus-visible {
+  outline: 2px solid var(--accent, #6ea8fe);
+  outline-offset: 1px;
 }
 
 .info {

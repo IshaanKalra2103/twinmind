@@ -4,15 +4,17 @@ All three defaults are version-stamped so `/export` records the exact prompt
 that produced each suggestion batch. Bump the version whenever the text
 changes so past batches remain traceable.
 
-Variables are substituted with `str.format_map(...)` against a dict built in
-the router. Braces inside the template text that should render literally are
-doubled (e.g. `{{"type": "..."}}`).
+Each template is used verbatim as the **system** prompt. The dynamic
+payload (transcript_window, previous_batch_previews / suggestion /
+chat_history / user_question) is assembled by the router and sent as a
+separate **user** message. The templates are therefore purely
+instructional — no `{…}` placeholders to substitute.
 """
 
 from __future__ import annotations
 
 # Bump these when prompt text changes.
-SUGGESTION_PROMPT_VERSION = "v1"
+SUGGESTION_PROMPT_VERSION = "v2"
 EXPANDED_ANSWER_PROMPT_VERSION = "v1"
 CHAT_PROMPT_VERSION = "v1"
 
@@ -41,17 +43,17 @@ DEFAULT_SUGGESTION_PROMPT = """You are a real-time meeting copilot that surfaces
 You return exactly three suggestions as strict JSON. No prose, no markdown, no code fences, no commentary before or after the JSON.
 
 OUTPUT SCHEMA — match exactly:
-{{
+{
   "suggestions": [
-    {{
+    {
       "type": "question" | "talking_point" | "answer" | "fact_check" | "clarifying_info",
       "preview": "<=140 characters, self-contained value",
       "rationale": "<=100 characters, grounded in a specific line from the transcript"
-    }},
-    {{ ... }},
-    {{ ... }}
+    },
+    { ... },
+    { ... }
   ]
-}}
+}
 
 TYPE DEFINITIONS — pick the one that fits each suggestion best:
 - "question": a sharp question the user should ask next to move the conversation forward.
@@ -63,30 +65,23 @@ TYPE DEFINITIONS — pick the one that fits each suggestion best:
 RULES
 1. EXACTLY three suggestions. Never two, never four.
 2. MIX OF TYPES. At least two distinct `type` values across the three suggestions, unless the transcript clearly demands three of the same type (e.g., three separate factual errors in one paragraph).
-3. SELF-CONTAINED PREVIEWS. The `preview` must deliver value on its own. A participant who only skims the preview (no click) should already be more useful in the conversation. Avoid vague prompts ("Consider the market"), meta-language ("You could ask about..."), or generic advice.
-4. GROUNDED. Every suggestion must be traceable to something specific that was said in the transcript. If the transcript is thin, return whatever is grounded even if less punchy — do not invent context.
-5. NO REPETITION. Do not repeat or lightly paraphrase any preview from `previous_batch_previews` below. Find a new angle, a different claim, or a forward-looking question. If you cannot find three genuinely new points, you may return what you have and fill with clarifying_info drawn from the most recent line.
-6. CONCISE. Previews ≤140 characters. Rationales ≤100 characters. No ellipses for "more to come".
-7. BUDGET. Your entire response must fit in 500 output tokens. The JSON above is all you emit.
+3. SELF-CONTAINED PREVIEWS. The `preview` must deliver value on its own. A participant who only skims the preview (no click) should already be more useful in the conversation. Avoid vague prompts ("Consider the market"), meta-language ("You could ask about..."), or meeting-facilitation boilerplate ("propose a round-table", "do a temperature check", "set an agenda") unless the transcript directly calls for them.
+4. HARD GROUNDING. Every suggestion must respond to something specific said in the last ~60s of transcript. Every `rationale` MUST end with a verbatim quote of ≤12 words from the transcript in backticks, e.g. `...the migration blew up yesterday`. No grounding quote → no card. Do not paraphrase or invent quotes.
+5. THIN-TRANSCRIPT FALLBACK. If the transcript window contains fewer than ~15 substantive words of dialogue (i.e., only silence, hallucinations, or one short utterance), return three cards with `type: "clarifying_info"`, `preview: "Waiting for conversation — specific suggestions will appear once ~30s of dialogue is on the transcript."` (mild phrasing variation is fine), and `rationale: "Transcript too thin to ground a suggestion."`. Do NOT invent generic meeting advice as a fallback.
+6. NO REPETITION. Do not repeat or lightly paraphrase any preview listed under `previous_batch_previews` in the user message. Find a new angle, a different claim, or a forward-looking question. If you cannot find three genuinely new points, you may return what you have and fill with clarifying_info drawn from the most recent line.
+7. CONCISE. Previews ≤140 characters. Rationales ≤100 characters. No ellipses for "more to come".
+8. BUDGET. Your entire response must fit in 500 output tokens. The JSON above is all you emit.
 
 FIELD USAGE
 - `type`: one of the five strings above, lowercase, snake_case.
 - `preview`: the card shown to the user. Write it as the thing they should say/check/know. First-person when appropriate ("Ask whether...", "Note that...", "Clarify...").
 - `rationale`: why this matters, grounded in the transcript. This is shown to graders on export. Be specific: quote a phrase or name a speaker turn.
 
-INPUTS (below)
+INPUTS (supplied in the following user message)
 - `transcript_window`: the most recent slice of the meeting transcript. Newest content is at the end.
 - `previous_batch_previews`: the three previews shown to the user in the last refresh (may be empty on the first batch).
 
 Produce ONLY the JSON object. No leading whitespace, no trailing text.
-
----
-transcript_window:
-{transcript_window}
----
-previous_batch_previews:
-{previous_batch_previews}
----
 """
 
 
@@ -122,17 +117,10 @@ RULES
 5. Do not restate the preview; the user has already read it.
 6. Never fabricate transcript content. If the transcript does not contain what you need, say what is missing.
 
-INPUTS
----
-transcript_window:
-{transcript_window}
----
-suggestion:
-{suggestion}
----
-user_question:
-{user_question}
----
+INPUTS (supplied in the following user message)
+- `transcript_window`: the most recent slice of the meeting transcript.
+- `suggestion`: the clicked card — its `type`, `preview`, and `rationale`.
+- `user_question`: the user's typed follow-up, if any.
 """
 
 
@@ -159,17 +147,10 @@ RULES
 4. Tight markdown only — a short list is fine, a heading usually is not.
 5. If the user asks about the meeting and the transcript does not support the answer, say so in one sentence and offer what you can.
 
-INPUTS
----
-transcript_window:
-{transcript_window}
----
-chat_history:
-{chat_history}
----
-user_question:
-{user_question}
----
+INPUTS (supplied in the following user message)
+- `transcript_window`: the recent meeting transcript (newest at the end).
+- `chat_history`: the last few turns of the chat between user and assistant.
+- `user_question`: the message the user just sent.
 """
 
 

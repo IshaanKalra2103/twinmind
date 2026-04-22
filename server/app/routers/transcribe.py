@@ -23,13 +23,59 @@ router = APIRouter(tags=["transcribe"])
 
 MAX_AUDIO_BYTES = 25 * 1024 * 1024  # 25 MB upload cap.
 
-# Obvious Whisper hallucinations on silent inputs. Kept tiny; add as needed.
-HALLUCINATION_DENYLIST = {
+# Whisper hallucinations on silent/low-energy input. Normalized form:
+# lowercased, stripped, trailing punctuation removed.
+_HALLUCINATION_LITERALS = {
+    "",
+    "thank you",
+    "thanks",
+    "thanks for watching",
+    "thank you for watching",
     "thanks for watching!",
-    "thank you for watching.",
     "subscribe to the channel",
-    ".",
+    "please subscribe",
+    "like and subscribe",
+    "bye",
+    "goodbye",
+    "hmm",
+    "hm",
+    "uh",
+    "um",
+    "yeah",
+    "ok",
+    "okay",
+    "you",
+    "the",
+    "music",
+    "[music]",
+    "(music)",
+    "applause",
+    "[applause]",
+    "silence",
+    "[silence]",
+    "takk for ating med",  # Norwegian phantom on silence.
+    "takk",
+    "tack",
+    "danke",
+    "gracias",
+    "merci",
 }
+
+
+def _is_hallucination(text: str) -> bool:
+    """Normalize and match against the denylist.
+
+    Also filters very short non-ASCII drifts — if the whole segment is
+    <= 25 chars and contains any non-ASCII chars, treat as foreign-
+    language hallucination (Whisper routinely emits single-word
+    Nordic/German/French fragments when the mic is near-silent).
+    """
+    normalized = text.strip().lower().rstrip(".!?…").strip()
+    if normalized in _HALLUCINATION_LITERALS:
+        return True
+    if len(normalized) <= 25 and any(ord(c) > 127 for c in normalized):
+        return True
+    return False
 
 
 @router.post("/transcribe", response_model=TranscribeResponse)
@@ -64,7 +110,10 @@ async def transcribe(
             audio_bytes=data,
             filename=audio.filename,
             content_type=audio.content_type or "audio/webm",
-            language=language,
+            # Default to English — unpinned Whisper drifts into Nordic/German
+            # phantoms on near-silent audio. Client can override per-request
+            # via the `language` form field for multilingual meetings.
+            language=language or "en",
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("Groq transcribe failed: %s", exc)
@@ -73,8 +122,8 @@ async def transcribe(
         ) from exc
 
     text_clean = (text or "").strip()
-    if not text_clean or text_clean.lower() in HALLUCINATION_DENYLIST:
-        # Silent or hallucinated — do not append.
+    if _is_hallucination(text_clean):
+        log.info("Skipped hallucinated segment: %r", text_clean[:60])
         return TranscribeResponse(session_id=session_id, segment=None)
 
     row = await repo.append_segment(session_id, text_clean, started_dt)

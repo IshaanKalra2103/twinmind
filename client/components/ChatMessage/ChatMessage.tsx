@@ -1,4 +1,6 @@
 import type { ChatMessage as ChatMessageT } from "@/types/session";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import styles from "./ChatMessage.module.css";
 
 export function ChatMessage({ message }: { message: ChatMessageT }) {
@@ -13,7 +15,15 @@ export function ChatMessage({ message }: { message: ChatMessageT }) {
     <div className={`${styles.msg} ${isUser ? styles.user : styles.assistant}`}>
       <div className={styles.who}>{who}</div>
       <div className={styles.bubble}>
-        {message.content}
+        {isUser ? (
+          message.content
+        ) : (
+          <div className={styles.markdown}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {message.content}
+            </ReactMarkdown>
+          </div>
+        )}
         {message.streaming && <span className={styles.cursor} aria-hidden />}
       </div>
       {message.error && (

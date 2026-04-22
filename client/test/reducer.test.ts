@@ -46,6 +46,60 @@ describe("sessionReducer", () => {
     expect(s.isRecording).toBe(true);
   });
 
+  it("setSessionId clears session-bound slices on actual id change", () => {
+    // Seed state as if session A had generated some data.
+    let s: SessionState = { ...INITIAL_STATE, sessionId: "sess_A" };
+    s = sessionReducer(s, {
+      type: "appendTranscript",
+      line: {
+        id: "seg_1",
+        text: "hello",
+        startedAt: "2026-04-22T00:00:00Z",
+        receivedAt: "2026-04-22T00:00:01Z",
+      },
+    });
+    s = sessionReducer(s, {
+      type: "addBatch",
+      batch: {
+        id: "batch_A",
+        createdAt: "2026-04-22T00:00:02Z",
+        suggestions: [
+          {
+            id: "sug_A",
+            type: "question",
+            preview: "stale?",
+            clicked: false,
+            fresh: true,
+          },
+        ],
+      },
+    });
+    expect(s.transcript).toHaveLength(1);
+    expect(s.batches).toHaveLength(1);
+
+    // Re-mint to session B — stale slices must clear so the old
+    // suggestion card cannot be clicked against the new session.
+    s = sessionReducer(s, { type: "setSessionId", sessionId: "sess_B" });
+    expect(s.sessionId).toBe("sess_B");
+    expect(s.transcript).toEqual([]);
+    expect(s.batches).toEqual([]);
+    expect(s.chat).toEqual([]);
+
+    // Same-id dispatch is a no-op (preserves state).
+    s = sessionReducer(s, {
+      type: "appendTranscript",
+      line: {
+        id: "seg_2",
+        text: "b-one",
+        startedAt: "2026-04-22T00:00:10Z",
+        receivedAt: "2026-04-22T00:00:11Z",
+      },
+    });
+    const before = s;
+    s = sessionReducer(s, { type: "setSessionId", sessionId: "sess_B" });
+    expect(s).toBe(before);
+  });
+
   it("appendTranscript appends in order", () => {
     const s = sessionReducer(INITIAL_STATE, {
       type: "appendTranscript",

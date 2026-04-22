@@ -17,13 +17,112 @@
   border-radius: 8px;
   font-size: 13px;
   line-height: 1.5;
-  white-space: pre-wrap;
   word-wrap: break-word;
 }
 
+/* User input is plain text — preserve newlines. */
 .user .bubble {
   background: rgba(110, 168, 254, 0.08);
   border-color: rgba(110, 168, 254, 0.3);
+  white-space: pre-wrap;
+}
+
+/* Assistant content is markdown — let block elements handle layout. */
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p {
+  margin: 0 0 8px;
+}
+.markdown p:last-child {
+  margin-bottom: 0;
+}
+.markdown strong {
+  font-weight: 600;
+  color: var(--fg);
+}
+.markdown em {
+  font-style: italic;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 10px 0 6px;
+  color: var(--fg);
+}
+.markdown h1:first-child,
+.markdown h2:first-child,
+.markdown h3:first-child,
+.markdown h4:first-child {
+  margin-top: 0;
+}
+.markdown ul,
+.markdown ol {
+  margin: 6px 0 8px;
+  padding-left: 20px;
+}
+.markdown li {
+  margin: 2px 0;
+}
+.markdown li > p {
+  margin: 0;
+}
+.markdown code {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.markdown pre {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.markdown pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 12px;
+}
+.markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.markdown blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+  margin: 6px 0;
+  color: var(--muted);
+}
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 10px 0;
+}
+.markdown table {
+  border-collapse: collapse;
+  margin: 6px 0;
+  font-size: 12px;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+.markdown th {
+  background: rgba(255, 255, 255, 0.04);
+  font-weight: 600;
 }
 
 /* Streaming cursor (thin blinking bar appended to the bubble while tokens arrive) */

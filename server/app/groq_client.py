@@ -43,6 +43,13 @@ async def transcribe(
         "model": settings.model_transcribe,
         "file": (filename, audio_bytes, content_type),
         "response_format": "text",
+        # Anchor the model with a realistic-meeting prompt so silence gets
+        # transcribed as "" instead of "Thank you." / "Takk for ating med."
+        # Whisper uses this as a style/vocab hint, not as text to include.
+        "prompt": (
+            "The following is a live business meeting conversation in "
+            "English. Ignore background noise, silence, or music."
+        ),
     }
     if language:
         kwargs["language"] = language

@@ -87,5 +87,5 @@ async def test_export_bundle_shape(client, monkeypatch):
     assert body["chat"][0]["triggered_by_suggestion_id"] == sug_id
 
     # Meta.
-    assert body["meta"]["default_suggestion_prompt_version"] == "v1"
+    assert body["meta"]["default_suggestion_prompt_version"] == "v2"
     assert body["meta"]["defaults"]["model_chat"]

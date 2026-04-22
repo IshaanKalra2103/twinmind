@@ -48,8 +48,24 @@ export function sessionReducer(
       return { ...state, apiKey: action.apiKey };
     case "setSettings":
       return { ...state, settings: action.settings };
-    case "setSessionId":
-      return { ...state, sessionId: action.sessionId };
+    case "setSessionId": {
+      // If the session id changes (including from null → minted, or one
+      // uuid → another), discard UI slices tied to the previous session.
+      // Otherwise a stale suggestion card from session A could be clicked
+      // against session B and 404 as "suggestion_id belongs to a different
+      // session." Brief-compliant: no persistence across a real session
+      // change, apiKey/settings (not session-bound) are preserved.
+      if (state.sessionId === action.sessionId) return state;
+      return {
+        ...state,
+        sessionId: action.sessionId,
+        transcript: [],
+        batches: [],
+        chat: [],
+        countdown: 30,
+        lastError: null,
+      };
+    }
     case "setRecording":
       return { ...state, isRecording: action.recording };
     case "appendTranscript":

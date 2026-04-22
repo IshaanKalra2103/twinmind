@@ -58,7 +58,7 @@ export default function Home() {
     [hasKey, state.apiKey, state.sessionId, dispatch]
   );
 
-  const { isRecording, start, stop } = useMediaRecorder({
+  const { isRecording, start, stop, flushNow } = useMediaRecorder({
     onChunk,
     onError: (err) => {
       const msg = err instanceof Error ? err.message : String(err);
@@ -82,8 +82,18 @@ export default function Home() {
   }, [isRecording, hasKey, start, stop, dispatch]);
 
   const onReload = useCallback(async () => {
+    // Per Ask.md: manual refresh updates transcript THEN suggestions. If mic is
+    // live, flush the in-flight audio chunk (stop/restart the recorder now so
+    // the last 0–30s reach /transcribe) before asking for fresh suggestions.
+    if (isRecording) {
+      try {
+        await flushNow();
+      } catch {
+        /* fall through to refresh — stale transcript is better than no refresh */
+      }
+    }
     await polling.refresh();
-  }, [polling]);
+  }, [isRecording, flushNow, polling]);
 
   const onSuggestionClick = useCallback(
     (s: Suggestion) => {
@@ -117,6 +127,7 @@ export default function Home() {
           recording={isRecording}
           onToggleMic={toggleMic}
           showApiKeyBanner={state.hydrated && !hasKey}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
         <SuggestionsPanel
           batches={state.batches}
@@ -131,6 +142,7 @@ export default function Home() {
           disabled={!hasKey || chat.busy}
           onSend={onChatSend}
           showApiKeyBanner={state.hydrated && !hasKey}
+          onOpenSettings={() => setSettingsOpen(true)}
         />
       </div>
       <SettingsModal

@@ -14,6 +14,7 @@ interface Props {
   micDisabled?: boolean;
   onToggleMic: () => void;
   showApiKeyBanner?: boolean;
+  onOpenSettings?: () => void;
 }
 
 export function TranscriptPanel({
@@ -22,6 +23,7 @@ export function TranscriptPanel({
   micDisabled,
   onToggleMic,
   showApiKeyBanner,
+  onOpenSettings,
 }: Props) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   useAutoScroll(bodyRef, [transcript.length]);
@@ -50,7 +52,14 @@ export function TranscriptPanel({
       </div>
       <div className={styles.body} ref={bodyRef}>
         {showApiKeyBanner && (
-          <HelpBanner variant="warn">
+          <HelpBanner
+            variant="warn"
+            action={
+              onOpenSettings
+                ? { label: "Open Settings", onClick: onOpenSettings }
+                : undefined
+            }
+          >
             Paste your Groq API key in Settings before starting recording — it
             is required for transcription.
           </HelpBanner>

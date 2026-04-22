@@ -13,6 +13,7 @@ interface Props {
   disabled?: boolean;
   onSend: (text: string) => void;
   showApiKeyBanner?: boolean;
+  onOpenSettings?: () => void;
 }
 
 export function ChatPanel({
@@ -20,6 +21,7 @@ export function ChatPanel({
   disabled,
   onSend,
   showApiKeyBanner,
+  onOpenSettings,
 }: Props) {
   const [value, setValue] = useState("");
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -43,7 +45,14 @@ export function ChatPanel({
       </div>
       <div className={styles.body} ref={bodyRef}>
         {showApiKeyBanner && (
-          <HelpBanner variant="warn">
+          <HelpBanner
+            variant="warn"
+            action={
+              onOpenSettings
+                ? { label: "Open Settings", onClick: onOpenSettings }
+                : undefined
+            }
+          >
             Paste your Groq API key in Settings to send messages.
           </HelpBanner>
         )}
