@@ -1,0 +1,63 @@
+.card {
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.15s;
+  text-align: left;
+  width: 100%;
+  color: inherit;
+  font-family: inherit;
+}
+
+.card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.fresh {
+  border-color: var(--accent);
+}
+
+.stale {
+  opacity: 0.5;
+}
+
+.tag {
+  display: inline-block;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-bottom: 6px;
+}
+
+.tag.question {
+  background: rgba(110, 168, 254, 0.15);
+  color: var(--accent);
+}
+.tag.talking {
+  background: rgba(179, 136, 255, 0.15);
+  color: var(--accent-2);
+}
+.tag.answer {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--good);
+}
+.tag.fact {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--warn);
+}
+.tag.clarifying {
+  background: rgba(138, 147, 166, 0.15);
+  color: var(--muted);
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+}

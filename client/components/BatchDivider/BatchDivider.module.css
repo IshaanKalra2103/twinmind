@@ -1,0 +1,8 @@
+.divider {
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  padding: 6px 0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}

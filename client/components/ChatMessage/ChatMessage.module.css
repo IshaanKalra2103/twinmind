@@ -1,0 +1,54 @@
+.msg {
+  margin-bottom: 14px;
+}
+
+.who {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.bubble {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.user .bubble {
+  background: rgba(110, 168, 254, 0.08);
+  border-color: rgba(110, 168, 254, 0.3);
+}
+
+/* Streaming cursor (thin blinking bar appended to the bubble while tokens arrive) */
+.cursor {
+  display: inline-block;
+  width: 7px;
+  height: 12px;
+  margin-left: 2px;
+  background: var(--accent);
+  vertical-align: -1px;
+  animation: blink 1s steps(2) infinite;
+}
+@keyframes blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.errorNote {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--danger);
+}

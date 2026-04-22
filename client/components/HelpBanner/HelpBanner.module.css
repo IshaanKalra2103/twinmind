@@ -1,0 +1,24 @@
+.banner {
+  padding: 8px 12px;
+  font-size: 12px;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  color: #cfd3dc;
+}
+
+.info {
+  background: rgba(110, 168, 254, 0.08);
+  border-color: rgba(110, 168, 254, 0.3);
+}
+
+.warn {
+  background: rgba(251, 191, 36, 0.08);
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.danger {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.35);
+}

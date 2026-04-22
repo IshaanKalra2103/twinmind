@@ -1,0 +1,149 @@
+"use client";
+
+import { useCallback, useState } from "react";
+import { TopBar } from "@/components/TopBar/TopBar";
+import { TranscriptPanel } from "@/components/TranscriptPanel/TranscriptPanel";
+import { SuggestionsPanel } from "@/components/SuggestionsPanel/SuggestionsPanel";
+import { ChatPanel } from "@/components/ChatPanel/ChatPanel";
+import { SettingsModal } from "@/components/SettingsModal/SettingsModal";
+import { ExportButton } from "@/components/ExportButton/ExportButton";
+import { useSession } from "@/lib/sessionStore";
+import { useMediaRecorder } from "@/hooks/useMediaRecorder";
+import { useSuggestionsPolling } from "@/hooks/useSuggestionsPolling";
+import { useChatStream } from "@/hooks/useChatStream";
+import { transcribe } from "@/lib/api";
+import { makeId } from "@/lib/ids";
+import type { Suggestion } from "@/types/session";
+import styles from "./page.module.css";
+
+export default function Home() {
+  const { state, dispatch } = useSession();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const hasKey = !!state.apiKey.trim();
+
+  const polling = useSuggestionsPolling();
+  const chat = useChatStream();
+
+  const onChunk = useCallback(
+    async ({ blob, startedAt }: { blob: Blob; startedAt: string }) => {
+      if (!hasKey) return; // hard-gate: don't upload without a key
+      try {
+        const { data, sessionId } = await transcribe({
+          ctx: { apiKey: state.apiKey, sessionId: state.sessionId },
+          audio: blob,
+          startedAt,
+        });
+        if (sessionId && sessionId !== state.sessionId) {
+          dispatch({ type: "setSessionId", sessionId });
+        }
+        const text = (data.segment?.text ?? "").trim();
+        if (text) {
+          dispatch({
+            type: "appendTranscript",
+            line: {
+              id: data.segment?.id || makeId("seg"),
+              text,
+              startedAt: data.segment?.started_at || startedAt,
+              receivedAt:
+                data.segment?.received_at || new Date().toISOString(),
+            },
+          });
+          dispatch({ type: "setError", error: null });
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        dispatch({ type: "setError", error: `Transcription failed: ${msg}` });
+      }
+    },
+    [hasKey, state.apiKey, state.sessionId, dispatch]
+  );
+
+  const { isRecording, start, stop } = useMediaRecorder({
+    onChunk,
+    onError: (err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      dispatch({ type: "setError", error: `Mic error: ${msg}` });
+      dispatch({ type: "setRecording", recording: false });
+    },
+  });
+
+  const toggleMic = useCallback(async () => {
+    if (isRecording) {
+      stop();
+      dispatch({ type: "setRecording", recording: false });
+      return;
+    }
+    if (!hasKey) {
+      setSettingsOpen(true);
+      return;
+    }
+    await start();
+    dispatch({ type: "setRecording", recording: true });
+  }, [isRecording, hasKey, start, stop, dispatch]);
+
+  const onReload = useCallback(async () => {
+    await polling.refresh();
+  }, [polling]);
+
+  const onSuggestionClick = useCallback(
+    (s: Suggestion) => {
+      void chat.send({ question: s.preview, suggestion: s });
+    },
+    [chat]
+  );
+
+  const onChatSend = useCallback(
+    (text: string) => {
+      void chat.send({ question: text });
+    },
+    [chat]
+  );
+
+  return (
+    <>
+      <TopBar
+        title="TwinMind — Live Suggestions"
+        meta={
+          state.lastError
+            ? state.lastError
+            : "Transcript · Live Suggestions · Chat"
+        }
+        onOpenSettings={() => setSettingsOpen(true)}
+        exportSlot={<ExportButton />}
+      />
+      <div className={styles.layout}>
+        <TranscriptPanel
+          transcript={state.transcript}
+          recording={isRecording}
+          onToggleMic={toggleMic}
+          showApiKeyBanner={state.hydrated && !hasKey}
+        />
+        <SuggestionsPanel
+          batches={state.batches}
+          countdown={state.countdown}
+          loading={polling.loading}
+          canRefresh={polling.canRefresh}
+          onReload={onReload}
+          onSuggestionClick={onSuggestionClick}
+        />
+        <ChatPanel
+          messages={state.chat}
+          disabled={!hasKey || chat.busy}
+          onSend={onChatSend}
+          showApiKeyBanner={state.hydrated && !hasKey}
+        />
+      </div>
+      <SettingsModal
+        open={settingsOpen}
+        initialApiKey={state.apiKey}
+        initialSettings={state.settings}
+        onClose={() => setSettingsOpen(false)}
+        onSave={({ apiKey, settings }) => {
+          dispatch({ type: "setApiKey", apiKey });
+          dispatch({ type: "setSettings", settings });
+          setSettingsOpen(false);
+        }}
+      />
+    </>
+  );
+}

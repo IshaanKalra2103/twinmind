@@ -1,0 +1,31 @@
+# macOS
+.DS_Store
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Per-user Claude Code state (not source)
+.claude/
+
+# Local tooling workspace — not part of the service.
+.agent/
+issue.md
+
+# Secrets — subdirectory .gitignores already cover these; belt + braces.
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+.next/
