@@ -6,8 +6,8 @@ transcript. Clicking a card opens a longer-form answer in a right-hand chat
 panel; users can also type questions directly. One continuous chat per
 session. No login, no cross-reload persistence.
 
-- **Live demo:** _TBD — will be deployed to Vercel (frontend) + GCP Cloud Run (backend)._
-- **Stack:** Next.js 16 + TypeScript + CSS Modules · FastAPI (Python 3.12, uv) + asyncpg · Supabase Postgres · Groq (Whisper Large V3 + GPT-OSS 120B).
+- **Live demo:** _TBD — will be deployed to Vercel._
+- **Stack:** Next.js 16 + TypeScript + CSS Modules. Groq (Whisper Large V3 + GPT-OSS 120B) called directly from the browser. No backend.
 
 ---
 
@@ -31,52 +31,49 @@ Three columns, mirroring the reference prototype:
 
 Top-right actions: **Settings** (paste your Groq key + edit prompts/context
 windows) and **Export** (JSON bundle of transcript + every suggestion batch +
-full chat, with timestamps and the exact prompt used for each batch).
+full chat, with timestamps).
 
-## Quick start (local, ~2 minutes)
+## Quick start (~30 seconds)
 
-You need: Python 3.12, Node 20+, [uv](https://github.com/astral-sh/uv), and a
-Groq API key (paste it in Settings — never commit it).
+You need Node 20+ and a Groq API key (paste it in Settings — never commit it).
 
 ```bash
-# 1) Provision a Supabase project
-#    https://supabase.com → new project → copy the session-pooler
-#    connection string (port 5432).
-
-# 2) Backend
-cd server
-cp .env.example .env
-# edit .env: set DATABASE_URL to the session-pooler string
-uv sync
-uv run python scripts/apply_schema.py     # applies app/sql/schema.sql
-uv run uvicorn app.main:app --reload --port 8000
-
-# 3) Frontend (new terminal)
 cd client
 npm install
-npm run dev                                # http://localhost:3000
+npm run dev     # http://localhost:3000
 # Click the gear → paste your Groq API key → click the mic.
 ```
 
-`/healthz` should return `{"ok":true,"db":"up"}`. Full backend recipes
-(curl, SSE) are in [`server/README.md`](server/README.md).
+That's it. There is no backend to run. The browser calls Groq directly.
 
-> **Supabase pooler gotcha.** New (Postgres 17+) projects use
-> `aws-1-<region>.pooler.supabase.com`, not the older `aws-0-*`. Copy the
-> connection string directly from the dashboard — assembling it by hand
-> will surface as `Tenant or user not found`.
+## Architecture (in one paragraph)
+
+**Client-only.** The user pastes their Groq key into Settings; the browser
+calls `api.groq.com/openai/v1/*` directly using that key. Session state —
+transcript, suggestion batches, chat — lives in React state and disappears
+on reload, which is exactly what the brief asks for. Chat multi-turn
+continuity is achieved by passing the last few chat turns as `messages[]`
+on every request; Groq's streaming chat completions endpoint returns
+standard OpenAI SSE which the app reads via `fetch + ReadableStream`.
+
+Earlier revisions had a FastAPI proxy (Cloud Run + Supabase). After an
+audit, every responsibility of that backend turned out to be either
+(a) forwarding the key the browser already has, or (b) holding state
+that the brief explicitly says shouldn't persist. See
+[`decision-010-client-only-no-backend.md`](.agent/journal/agent-journal/decisions/decision-010-client-only-no-backend.md)
+for the full rationale.
 
 ## Stack choices and why
 
 | Layer | Choice | Why |
 |---|---|---|
-| Frontend | **Next.js 16 + TypeScript + CSS Modules** | Matches the reference prototype without re-theming; App Router lets us keep client state simple and SSR the shell. No Tailwind — the prototype ships its own palette and the CSS-var port is cleaner. |
-| Audio capture | **MediaRecorder, stop/restart every ~30s** | Produces standalone, valid WebM chunks that Whisper can accept without re-wrapping. Avoids the gotcha where mid-stream slicing yields unplayable blobs. |
-| Backend | **FastAPI + uv + asyncpg** | Async end-to-end (Groq is latency-bound on I/O); `uv` gives a reproducible lockfile with 10x faster installs; asyncpg talks to Supabase/Cloud SQL without ORM overhead. |
+| Frontend | **Next.js 16 + TypeScript + CSS Modules** | Matches the reference prototype without re-theming. App Router keeps client state simple. No Tailwind — the prototype ships its own palette and the CSS-var port is cleaner. |
+| Audio capture | **MediaRecorder, stop/restart every ~30s** | Produces standalone, valid WebM chunks that Whisper accepts without re-wrapping. Avoids the gotcha where mid-stream slicing yields unplayable blobs. |
+| LLM calls | **Direct browser → Groq** | Groq's `/openai/v1/*` endpoints return permissive CORS (`access-control-allow-origin: *`). The user's key is in localStorage; a proxy would not add security. |
 | LLM | **Groq — Whisper Large V3 + GPT-OSS 120B** | Brief requires this exact pair. Groq's latency budget is what makes 30s refresh + fast first-token chat feasible. |
-| State | **Supabase Postgres (session pooler)** | Matches the hosted-Postgres path in one env-var swap to Cloud SQL. Schema is plain SQL (`server/app/sql/schema.sql`), no Supabase client libs — the service is portable Postgres. |
-| Deploy | Frontend → **Vercel**. Backend → **GCP Cloud Run** (scale-to-zero). | Cold starts are acceptable for a demo; $0 idle. Secrets in Secret Manager. |
-| Chat streaming | **SSE over POST** (not GET) | `EventSource` is GET-only and can't send `X-Groq-Api-Key` as a header — we'd have to stuff it into the URL, where it shows up in logs. `fetch + ReadableStream` keeps the key in a header and the body JSON. |
+| State | **React state only** | Brief: no login, no persistence across reloads. React state is the session. Tab reload = fresh session. |
+| Chat streaming | **`fetch + ReadableStream` over OpenAI-SSE** | Groq streams `data: {json}\n\ndata: [DONE]` per OpenAI convention. No `EventSource`, no custom framing. Fallback to non-streaming `chat/completions` on any stream error. |
+| Deploy | **Vercel** | Static Next.js build. Nothing else to deploy. |
 
 ## Prompt strategy
 
@@ -99,10 +96,11 @@ should already be getting something. `rationale` (≤100 chars) quotes
 short phrases from the transcript when possible, so the grader can trace
 *why* a card appeared.
 
-**3. Strict JSON, no prose.** `{"suggestions":[…]}`. The server validates
-`len == 3` and parses `type` against a Postgres `CHECK` constraint — any
-free-form output or miscounted list fails fast and surfaces as a clean
-error rather than garbage cards.
+**3. Strict JSON, no prose.** `{"suggestions":[…]}`. The parser validates
+`len == 3` and parses `type` against a fixed enum — any free-form output
+or miscounted list fails fast. The suggestions call uses Groq's
+`response_format: { type: "json_object" }` to bias the model toward
+clean JSON, and on parse failure we retry once with a stricter prefix.
 
 ### Context windows
 
@@ -115,9 +113,9 @@ Two separate knobs, both editable in Settings:
   answers benefit from the full arc of the conversation, not just the
   last minute.
 
-A "segment" is the ~30s Whisper chunk the server actually stores, not
-raw chars — it stays human-readable in Settings ("last 12 segments")
-and converts to `context_window_chars` server-side.
+A "segment" is one ~30s Whisper chunk — it stays human-readable in
+Settings ("last 12 segments") and converts to a char budget before the
+Groq call.
 
 ### Expanded-answer and chat prompts
 
@@ -127,111 +125,62 @@ reminds the model the user is "in a live conversation and will glance
 back in 10 seconds" — that framing consistently produces tighter output
 than asking for brevity explicitly.
 
-## Architecture & notable decisions
-
-- **Server mints session IDs** (`X-Session-Id` echoed on first response,
-  client sends it on all subsequent calls). No login, but sessions are
-  UUIDs — not guessable.
-- **API key is per-request header** (`X-Groq-Api-Key`), never persisted
-  server-side. Default prompts stay server-side so they're not shipped in
-  the JS bundle. Omitted only on `/export` (no upstream call).
-- **`/transcribe` appends the transcript server-side.** The client
-  uploads the 30s audio chunk and a `started_at` timestamp; it does not
-  re-send transcript state on each subsequent call. Keeps request
-  bodies small and the DB the single source of truth.
-- **Chat streaming writes are O(1) per message.** Tokens accumulate in
-  memory during the SSE response; one INSERT on `done` (or `error`).
-  No per-token UPDATE storms.
-- **Schema is plain SQL.** `server/app/sql/schema.sql` + a small
-  `scripts/apply_schema.py` (asyncpg-based, no `psql` / libpq install
-  needed). Idempotent; re-runnable safely.
-
-Endpoint contracts are authoritative in
-`.agent/journal/agent-journal/endpoints/` (kept local) and summarised in
-`server/README.md`:
-
-| Method | Path | Purpose |
-|---|---|---|
-| POST | `/transcribe` | multipart audio chunk → transcript segment (Whisper) |
-| POST | `/suggestions` | transcript window → exactly 3 suggestions (JSON) |
-| POST | `/chat-stream` | SSE chat: `event: start\|token\|done\|error`, 15s ping |
-| POST | `/chat` | non-streaming chat fallback |
-| GET | `/export` | full session bundle (transcript + batches + chat, timestamped) |
-| GET | `/healthz` | `{ ok, db }` liveness + DB ping |
-
 ## Tradeoffs
 
 Honest calls I'd defend in a review:
 
-- **Supabase, not Cloud SQL.** The role signals GCP-native Postgres, but
-  for a single-submission demo Supabase's session pooler is zero-config
-  and the schema + asyncpg code transfer to Cloud SQL by swapping
-  `DATABASE_URL`. No code changes.
-- **No Chrome extension.** The brief is a web app. Deploying the
-  FastAPI service to Cloud Run (Secret Manager for `DATABASE_URL`,
-  least-privilege IAM, scale-to-zero) is enough platform signal without
-  spending days on an MV3 port that isn't graded.
-- **Cloud Run `min=0`.** Cold-start on first request of an idle session
-  (~1–2s). Cheaper than keeping one always-warm instance, and a demo
-  meeting starts with clicking "Settings" first — by the time the mic
-  is armed, the backend is warm. Reversible in one `gcloud` command if
-  the cold-start shows up in grading.
-- **Exactly 3, strictly.** The server raises if the model returns ≠3
+- **No backend.** The brief says no login, no cross-reload persistence,
+  and "don't over-engineer." A proxy would only add latency and a deploy
+  target. The job description mentions GCP/Cloud Run — I'd defend that
+  backend chops in the interview ("here's what a proxy layer would look
+  like") rather than shipping one that exists to forward headers.
+- **No Chrome extension.** The brief is a web app. Going MV3 would burn
+  days the brief doesn't grade.
+- **Exactly 3, strictly.** The parser throws if the model returns ≠3
   rather than silently truncating. Fewer ambiguous edge cases; the rare
   hard-fail surfaces as a visible error instead of degraded output.
 - **`clarifying_info` exists as a 5th card type** even though the
   reference prototype only colours 4. The brief explicitly lists
   clarifying info as one of the kinds of suggestion we should produce,
-  so it gets its own category in schema + prompt. Visual styling for
-  it is conservative (distinct, not alarming).
+  so it gets its own category in the enum + prompt.
 - **Key in `localStorage`.** Acceptable for a no-login demo; documented
   in Settings. Swapping to in-memory-only is a one-line change if
-  someone's reviewing the take-home on a shared machine.
+  someone's reviewing on a shared machine.
 
 ## Repo layout
 
 ```
 twinmind/
-├── client/                  # Next.js 16 App Router (TypeScript, CSS Modules)
-│   ├── app/                 # page shell + global layout
-│   ├── components/          # TopBar, MicButton, TranscriptPanel,
-│   │                        # SuggestionsPanel, SuggestionCard, ChatPanel,
-│   │                        # ChatMessage, SettingsModal, ExportButton, …
-│   ├── hooks/               # useMediaRecorder, useSuggestionsPolling,
-│   │                        # useChatStream
-│   ├── lib/                 # api client, sse parser, defaults (prompts),
-│   │                        # session/apiKey store
-│   ├── test/                # Vitest
-│   └── types/               # shared TS types
-└── server/                  # FastAPI + uv
-    ├── app/
-    │   ├── routers/         # transcribe, suggestions, chat, export
-    │   ├── prompts.py       # server-side prompt templates + version stamp
-    │   ├── groq_client.py   # per-request Groq client (no global state)
-    │   ├── session.py       # asyncpg repository
-    │   ├── db.py            # pool lifespan wiring
-    │   └── sql/schema.sql   # authoritative DDL
-    ├── scripts/apply_schema.py
-    ├── tests/               # pytest (13 tests, in-memory repo, Groq monkeypatched)
-    └── Dockerfile           # Cloud Run target
+└── client/                  # Next.js 16 App Router (TypeScript, CSS Modules)
+    ├── app/                 # page shell + global layout
+    ├── components/          # TopBar, MicButton, TranscriptPanel,
+    │                        # SuggestionsPanel, SuggestionCard, ChatPanel,
+    │                        # ChatMessage, SettingsModal, ExportButton, …
+    ├── hooks/               # useMediaRecorder, useSuggestionsPolling,
+    │                        # useChatStream
+    ├── lib/                 # groq (direct HTTP), prompts, suggestions
+    │                        # (JSON parser), transcribeFilter (Whisper
+    │                        # phantom denylist), sse (parser), export,
+    │                        # defaults (prompts + knobs), sessionStore
+    ├── test/                # Vitest (32 tests)
+    └── types/               # shared TS types
 ```
 
 ## Tests
 
-- **Backend:** `cd server && uv run pytest -q` — 13 tests, runs offline.
-  No DB required for the suite (tests use an in-memory fake); the Groq
-  SDK is monkeypatched per test.
-- **Frontend:** `cd client && npm test` — 23 Vitest tests covering the
-  SSE parser, state reducer, and panel components.
-- **Typecheck:** `cd client && npm run typecheck` (runs `tsc --noEmit`).
-- **Lint:** `cd server && uv run ruff check --fix`.
+- `cd client && npm test` — 32 Vitest tests covering the SSE parser,
+  reducer, panels, JSON validator, and hallucination filter.
+- `cd client && npm run typecheck` — `tsc --noEmit`.
+- `cd client && npm run build` — production Next.js build.
 
 ## Deploy
 
-- **Frontend → Vercel.** Default Next.js deploy. Set
-  `NEXT_PUBLIC_API_BASE_URL` to the Cloud Run URL.
-- **Backend → GCP Cloud Run** (`us-central1`, `1Gi` / `1 vCPU`, `min=0`,
-  `max=10`). `DATABASE_URL` in Secret Manager, mounted via
-  `--set-secrets`. Add the Vercel origin to `ALLOWED_ORIGINS`.
+Vercel, standard Next.js deploy. No env vars required at build time —
+the user's Groq key is pasted at runtime into Settings and stored in
+`localStorage`.
 
-Backend details and curl recipes: [`server/README.md`](server/README.md).
+## If CORS ever breaks
+
+If Groq one day stops allowing browser origins, the fix is a ~150-line
+Cloud Run service that forwards the `Authorization` header to Groq
+unchanged. The git history before this README has a working reference.

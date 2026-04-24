@@ -1,22 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { exportSession } from "@/lib/api";
 import { useSession } from "@/lib/sessionStore";
+import { buildExport } from "@/lib/export";
 import styles from "./ExportButton.module.css";
 
 export function ExportButton() {
   const { state } = useSession();
   const [busy, setBusy] = useState(false);
 
-  const onClick = async () => {
+  const hasContent =
+    state.transcript.length > 0 ||
+    state.batches.length > 0 ||
+    state.chat.length > 0;
+
+  const onClick = () => {
     if (busy) return;
     setBusy(true);
     try {
-      const data = await exportSession({
-        ctx: { apiKey: state.apiKey, sessionId: state.sessionId },
-      });
-      const blob = new Blob([JSON.stringify(data, null, 2)], {
+      const bundle = buildExport(state);
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], {
         type: "application/json",
       });
       const url = URL.createObjectURL(blob);
@@ -28,11 +31,6 @@ export function ExportButton() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error("export failed", e);
-      alert(
-        "Export failed. Is the backend running? See browser console for details."
-      );
     } finally {
       setBusy(false);
     }
@@ -43,8 +41,8 @@ export function ExportButton() {
       type="button"
       className={styles.btn}
       onClick={onClick}
-      disabled={busy || !state.sessionId}
-      title={state.sessionId ? "Download session JSON" : "Start a session first"}
+      disabled={busy || !hasContent}
+      title={hasContent ? "Download session JSON" : "Start a session first"}
     >
       {busy ? "Exporting…" : "↓ Export"}
     </button>

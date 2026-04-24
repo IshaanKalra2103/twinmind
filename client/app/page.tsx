@@ -11,7 +11,8 @@ import { useSession } from "@/lib/sessionStore";
 import { useMediaRecorder } from "@/hooks/useMediaRecorder";
 import { useSuggestionsPolling } from "@/hooks/useSuggestionsPolling";
 import { useChatStream } from "@/hooks/useChatStream";
-import { transcribe } from "@/lib/api";
+import { transcribeAudio } from "@/lib/groq";
+import { isHallucination } from "@/lib/transcribeFilter";
 import { makeId } from "@/lib/ids";
 import type { Suggestion } from "@/types/session";
 import styles from "./page.module.css";
@@ -25,37 +26,40 @@ export default function Home() {
   const chat = useChatStream();
 
   const onChunk = useCallback(
-    async ({ blob, startedAt }: { blob: Blob; startedAt: string }) => {
+    async ({
+      blob,
+      startedAt,
+      mimeType,
+    }: {
+      blob: Blob;
+      startedAt: string;
+      mimeType: string;
+    }) => {
       if (!hasKey) return; // hard-gate: don't upload without a key
+      const ext = mimeType.includes("mp4") ? "m4a" : "webm";
       try {
-        const { data, sessionId } = await transcribe({
-          ctx: { apiKey: state.apiKey, sessionId: state.sessionId },
+        const text = await transcribeAudio({
+          apiKey: state.apiKey,
           audio: blob,
-          startedAt,
+          filename: `chunk.${ext}`,
         });
-        if (sessionId && sessionId !== state.sessionId) {
-          dispatch({ type: "setSessionId", sessionId });
-        }
-        const text = (data.segment?.text ?? "").trim();
-        if (text) {
-          dispatch({
-            type: "appendTranscript",
-            line: {
-              id: data.segment?.id || makeId("seg"),
-              text,
-              startedAt: data.segment?.started_at || startedAt,
-              receivedAt:
-                data.segment?.received_at || new Date().toISOString(),
-            },
-          });
-          dispatch({ type: "setError", error: null });
-        }
+        if (!text || isHallucination(text)) return;
+        dispatch({
+          type: "appendTranscript",
+          line: {
+            id: makeId("seg"),
+            text,
+            startedAt,
+            receivedAt: new Date().toISOString(),
+          },
+        });
+        dispatch({ type: "setError", error: null });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         dispatch({ type: "setError", error: `Transcription failed: ${msg}` });
       }
     },
-    [hasKey, state.apiKey, state.sessionId, dispatch]
+    [hasKey, state.apiKey, dispatch]
   );
 
   const { isRecording, start, stop, flushNow } = useMediaRecorder({
@@ -84,7 +88,7 @@ export default function Home() {
   const onReload = useCallback(async () => {
     // Per Ask.md: manual refresh updates transcript THEN suggestions. If mic is
     // live, flush the in-flight audio chunk (stop/restart the recorder now so
-    // the last 0–30s reach /transcribe) before asking for fresh suggestions.
+    // the last 0–30s reach Groq) before asking for fresh suggestions.
     if (isRecording) {
       try {
         await flushNow();

@@ -1,16 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getSuggestions } from "@/lib/api";
+import { chatCompletion } from "@/lib/groq";
+import { buildSuggestionsMessages } from "@/lib/prompts";
+import { parseSuggestionsJson } from "@/lib/suggestions";
 import { makeId } from "@/lib/ids";
 import { SEGMENT_CHARS } from "@/lib/defaults";
 import { useSession } from "@/lib/sessionStore";
 import type { Suggestion, SuggestionBatch } from "@/types/session";
 
 /**
- * Polls /suggestions once per cycle. Tick the visible countdown once per
- * second; when it hits 0, refresh + reset to 30. Also exposes a manual
- * refresh. Pauses while there is no transcript yet (409) or no API key.
+ * Polls Groq once per cycle to produce 3 fresh suggestions. The ~30s
+ * countdown ticks once per second; when it hits 0, refresh + reset. Also
+ * exposes a manual refresh. Pauses while there is no transcript yet or no
+ * API key.
  */
 export function useSuggestionsPolling() {
   const { state, dispatch } = useSession();
@@ -32,28 +35,49 @@ export function useSuggestionsPolling() {
     inFlightRef.current = true;
     setLoading(true);
     try {
-      const { data, sessionId } = await getSuggestions({
-        ctx: { apiKey: state.apiKey, sessionId: state.sessionId },
-        body: {
-          prompt_override: state.settings.liveSuggestionPrompt,
-          context_window_chars:
-            state.settings.suggestionContextSegments * SEGMENT_CHARS,
-          include_previous_batch_hint: true,
-        },
-      });
-      if (sessionId && sessionId !== state.sessionId) {
-        dispatch({ type: "setSessionId", sessionId });
+      const transcript = state.transcript.map((t) => t.text).join("\n");
+      const previousBatchPreviews =
+        state.batches[0]?.suggestions.map((s) => s.preview) ?? [];
+      const windowChars =
+        state.settings.suggestionContextSegments * SEGMENT_CHARS;
+
+      // One attempt + one retry on bad JSON.
+      let parsed: ReturnType<typeof parseSuggestionsJson> | null = null;
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < 2 && parsed === null; attempt++) {
+        try {
+          const raw = await chatCompletion({
+            apiKey: state.apiKey,
+            messages: buildSuggestionsMessages({
+              systemPrompt: state.settings.liveSuggestionPrompt,
+              transcript,
+              windowChars,
+              previousBatchPreviews,
+              retry: attempt === 1,
+            }),
+            temperature: 0.5,
+            maxTokens: 500,
+            responseFormatJson: true,
+          });
+          parsed = parseSuggestionsJson(raw);
+        } catch (err) {
+          lastErr = err;
+        }
       }
-      const suggestions: Suggestion[] = data.batch.suggestions.map((s) => ({
-        id: s.id || makeId("sug"),
+      if (parsed === null) {
+        throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+      }
+
+      const suggestions: Suggestion[] = parsed.map((s) => ({
+        id: makeId("sug"),
         type: s.type,
         preview: s.preview,
         rationale: s.rationale,
         fresh: true,
       }));
       const batch: SuggestionBatch = {
-        id: data.batch.id || makeId("batch"),
-        createdAt: data.batch.created_at || new Date().toISOString(),
+        id: makeId("batch"),
+        createdAt: new Date().toISOString(),
         suggestions,
       };
       dispatch({ type: "addBatch", batch });
@@ -68,8 +92,8 @@ export function useSuggestionsPolling() {
     }
   }, [
     state.apiKey,
-    state.sessionId,
-    state.transcript.length,
+    state.transcript,
+    state.batches,
     state.settings.liveSuggestionPrompt,
     state.settings.suggestionContextSegments,
     dispatch,
@@ -85,11 +109,8 @@ export function useSuggestionsPolling() {
     return () => clearInterval(iv);
   }, [state.isRecording, dispatch]);
 
-  // When the countdown hits 0 (value 30 is the freshly-reset state), fire.
-  // `countdown === 1` this tick means next tick dispatches `tickCountdown`
-  // which rolls to 30 via the reducer — so use `=== 30` resetting pattern:
-  // easier to watch for when countdown just wrapped. Instead, drive refresh
-  // from an effect that watches isRecording and uses its own timer.
+  // Drive the auto-refresh from its own interval rather than syncing with
+  // the per-second countdown tick (avoids off-by-one firing).
   useEffect(() => {
     if (!state.isRecording) return;
     const iv = setInterval(() => {

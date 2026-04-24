@@ -1,6 +1,7 @@
 import type { SuggestionType } from "./api";
 
-/** Client-side session model. Not persisted across reloads per brief. */
+/** Client-side session model. The whole thing lives in React state — no
+ *  persistence across reloads, per brief. */
 
 export interface TranscriptLine {
   id: string;
@@ -15,7 +16,7 @@ export interface Suggestion {
   id: string;
   type: SuggestionType;
   preview: string;
-  rationale?: string;
+  rationale?: string | null;
   /** true only for the current (latest) batch. */
   fresh: boolean;
   /** true once the user has clicked the card. */
@@ -44,8 +45,8 @@ export interface ChatMessage {
 
 /**
  * Settings live in localStorage under `twinmind.settings`. Context windows are
- * stored in *segments* (number of 30s transcript chunks) per plan-frontend;
- * converted to chars at API-call time with SEGMENT_CHARS.
+ * stored in *segments* (number of 30s transcript chunks); converted to chars
+ * at call time with SEGMENT_CHARS.
  */
 export interface Settings {
   liveSuggestionPrompt: string;
@@ -56,8 +57,6 @@ export interface Settings {
 }
 
 export interface SessionState {
-  /** Session id issued by the backend on the first request that carries none. */
-  sessionId: string | null;
   apiKey: string;
   settings: Settings;
   /** Persisted-slices have hydrated from localStorage. */
@@ -76,7 +75,6 @@ export type SessionAction =
   | { type: "hydrate"; apiKey: string; settings: Settings }
   | { type: "setApiKey"; apiKey: string }
   | { type: "setSettings"; settings: Settings }
-  | { type: "setSessionId"; sessionId: string }
   | { type: "setRecording"; recording: boolean }
   | { type: "appendTranscript"; line: TranscriptLine }
   | { type: "addBatch"; batch: SuggestionBatch }

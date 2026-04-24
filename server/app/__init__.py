@@ -1,1 +1,0 @@
-"""TwinMind backend — FastAPI service."""

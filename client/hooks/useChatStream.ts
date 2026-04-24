@@ -1,12 +1,17 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { chat, chatStream } from "@/lib/api";
+import { chatCompletion, chatCompletionStream } from "@/lib/groq";
+import { buildChatMessages, buildExpandedMessages } from "@/lib/prompts";
 import { makeId } from "@/lib/ids";
 import { SEGMENT_CHARS } from "@/lib/defaults";
 import { useSession } from "@/lib/sessionStore";
 import { TAG_LABEL } from "@/components/SuggestionCard/SuggestionCard";
 import type { ChatMessage, Suggestion } from "@/types/session";
+import type { ChatMessage as GroqMessage } from "@/lib/groq";
+
+// Kept small — user and assistant alternate, so 6 turns ≈ 3 exchanges.
+const CHAT_HISTORY_TURNS = 6;
 
 export interface SendArgs {
   question: string;
@@ -58,63 +63,69 @@ export function useChatStream() {
           suggestionId: suggestion.id,
         });
 
-      const ctx = { apiKey: state.apiKey, sessionId: state.sessionId };
-      const body = {
-        question: trimmed,
-        suggestion_id: suggestion?.id ?? null,
-        prompt_override: isExpanded
-          ? state.settings.expandedAnswerPrompt
-          : state.settings.chatPrompt,
-        context_window_chars:
-          state.settings.expandedContextSegments * SEGMENT_CHARS,
-        mode: (isExpanded ? "expanded" : "chat") as "expanded" | "chat",
-      };
+      const transcript = state.transcript.map((t) => t.text).join("\n");
+      const windowChars =
+        state.settings.expandedContextSegments * SEGMENT_CHARS;
+
+      let messages: GroqMessage[];
+      if (isExpanded && suggestion) {
+        messages = buildExpandedMessages({
+          systemPrompt: state.settings.expandedAnswerPrompt,
+          transcript,
+          windowChars,
+          suggestion,
+          userQuestion: trimmed,
+        });
+      } else {
+        messages = buildChatMessages({
+          systemPrompt: state.settings.chatPrompt,
+          transcript,
+          windowChars,
+          chatHistory: state.chat,
+          historyTurns: CHAT_HISTORY_TURNS,
+          userQuestion: trimmed,
+        });
+      }
 
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       setBusy(true);
-      let receivedAnyToken = false;
-      let streamErrored = false;
+      let receivedAny = false;
+      let streamErr: Error | null = null;
 
       try {
-        for await (const ev of chatStream({ ctx, body, signal: ctrl.signal })) {
-          if (ev.type === "start") {
-            if (ev.sessionId && ev.sessionId !== state.sessionId)
-              dispatch({ type: "setSessionId", sessionId: ev.sessionId });
-          } else if (ev.type === "token") {
-            receivedAnyToken = true;
-            dispatch({
-              type: "appendToAssistant",
-              messageId: assistantId,
-              delta: ev.data.delta,
-            });
-          } else if (ev.type === "done") {
-            dispatch({ type: "finishAssistant", messageId: assistantId });
-          } else if (ev.type === "error") {
-            streamErrored = true;
-            dispatch({
-              type: "finishAssistant",
-              messageId: assistantId,
-              error: ev.data.message,
-            });
-          }
-        }
-        if (!receivedAnyToken && !streamErrored) {
-          // Stream closed without any content — treat as failure, fall back.
-          throw new Error("empty stream");
-        }
-      } catch (err) {
-        // Fall back to /chat on any streaming failure.
-        if (ctrl.signal.aborted) return;
-        const streamErr = err instanceof Error ? err.message : String(err);
-        try {
-          const { data, sessionId } = await chat({ ctx, body });
-          if (sessionId && sessionId !== state.sessionId)
-            dispatch({ type: "setSessionId", sessionId });
+        for await (const delta of chatCompletionStream({
+          apiKey: state.apiKey,
+          messages,
+          temperature: isExpanded ? 0.3 : 0.5,
+          signal: ctrl.signal,
+        })) {
+          receivedAny = true;
           dispatch({
             type: "appendToAssistant",
             messageId: assistantId,
-            delta: data.message.content,
+            delta,
+          });
+        }
+        if (!receivedAny) throw new Error("empty stream");
+        dispatch({ type: "finishAssistant", messageId: assistantId });
+      } catch (err) {
+        if (ctrl.signal.aborted) {
+          dispatch({ type: "finishAssistant", messageId: assistantId });
+          return;
+        }
+        streamErr = err instanceof Error ? err : new Error(String(err));
+        // Fall back to non-streaming chat completion.
+        try {
+          const content = await chatCompletion({
+            apiKey: state.apiKey,
+            messages,
+            temperature: isExpanded ? 0.3 : 0.5,
+          });
+          dispatch({
+            type: "appendToAssistant",
+            messageId: assistantId,
+            delta: content,
           });
           dispatch({ type: "finishAssistant", messageId: assistantId });
         } catch (fallbackErr) {
@@ -125,7 +136,7 @@ export function useChatStream() {
           dispatch({
             type: "finishAssistant",
             messageId: assistantId,
-            error: `Stream failed (${streamErr}); fallback failed: ${msg}`,
+            error: `Stream failed (${streamErr.message}); fallback failed: ${msg}`,
           });
         }
       } finally {
@@ -133,7 +144,7 @@ export function useChatStream() {
         abortRef.current = null;
       }
     },
-    [busy, dispatch, state.apiKey, state.sessionId, state.settings]
+    [busy, dispatch, state.apiKey, state.transcript, state.chat, state.settings]
   );
 
   const cancel = useCallback(() => {

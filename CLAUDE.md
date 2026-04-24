@@ -8,12 +8,15 @@ TwinMind — **Live Suggestions** take-home assignment. A web app that listens t
 
 Full brief: `.agent/journal/Ask.md`. Do not re-derive product requirements — read that file.
 
+## Architecture
+
+**Client-only.** Single Next.js 16 workspace. The browser calls Groq directly (`https://api.groq.com/openai/v1/*`) using the user-pasted API key. There is no backend, no database, no proxy. Session state lives in React state; chat history is passed as `messages[]` on every chat request. See `decision-010-client-only-no-backend.md` for the rationale.
+
 ## Repo layout
 
-Monorepo, two workspaces:
+One workspace:
 
 - `client/` — Next.js 16 App Router + TypeScript (CSS Modules, no Tailwind).
-- `server/` — FastAPI on Python 3.12 via **uv** (per `~/.claude/CLAUDE.md`). asyncpg → Supabase Postgres.
 
 Plan, decisions, and sessions live under `.agent/journal/` as an Obsidian-style wiki; entry point is `.agent/journal/AgentJournal.md`. The coordinating agent logs every plan + major decision there — see the feedback memory.
 
@@ -26,27 +29,25 @@ Plan, decisions, and sessions live under `.agent/journal/` as an Obsidian-style 
 These are assignment rules, not preferences:
 
 - **Groq for everything.** Whisper Large V3 for transcription. **GPT-OSS 120B** for suggestions and chat. Same model for every candidate — the eval is prompt quality, not model choice.
-- **Never hardcode or ship a Groq API key.** There must be a Settings screen where the user pastes their own key. The key lives client-side / in the user's session only.
+- **Never hardcode or ship a Groq API key.** There must be a Settings screen where the user pastes their own key. The key lives in `localStorage` only.
 - **Settings screen must expose editable prompts and context windows:** live-suggestion prompt, detailed-answer-on-click prompt, chat prompt, context window for live suggestions, context window for expanded answers. Hardcode sensible defaults; let the user override.
 - **Exactly 3 suggestions per refresh.** Newest batch renders at the top; older batches stay visible below (stale styling). Mix of types — question to ask, talking point, answer to a question just asked, fact-check, clarifying info. Choosing the right mix for the moment is the core of what's being evaluated.
 - **~30s cadence** for both transcript chunk append and suggestions refresh. Manual refresh button updates transcript then suggestions.
-- **Chat streams first token fast.** Use SSE for `/chat-stream` with a non-SSE `/chat` fallback.
-- **Export** produces transcript + every suggestion batch + full chat history with timestamps (JSON or plain text). This is how submissions are evaluated — keep it complete and well-structured.
+- **Chat streams first token fast.** Use streaming chat completions with a non-streaming fallback.
+- **Export** produces transcript + every suggestion batch + full chat history with timestamps (JSON). This is how submissions are evaluated — keep it complete and well-structured.
 
-## Backend endpoint contract (implemented)
+## Where the pipeline lives
 
-Authoritative shapes in `.agent/journal/agent-journal/endpoints/*.md`.
-
-- `POST /transcribe` — multipart audio chunk → transcript segment (Whisper Large V3).
-- `POST /suggestions` — recent transcript → **exactly 3** suggestions, JSON-validated.
-- `POST /chat-stream` — SSE (**POST** not GET — see `decision-003-chat-stream-post-not-get`); `event: start|token|done|error`.
-- `POST /chat` — non-streaming fallback; same body as `/chat-stream`.
-- `GET  /export` — full session bundle (transcript + all batches w/ prompt_used + chat, timestamped).
-- `GET  /healthz` — `{"ok": true, "db": "up"|"down"}`.
-
-Headers: `X-Groq-Api-Key` on every call except `/export` (user-provided; never stored server-side). `X-Session-Id` echoed by server on first response; client sends on every subsequent call.
-
-Async end-to-end. Session state persists in Supabase Postgres via asyncpg (`decision-008-supabase-session-store`). Chat streaming writes to DB only on `done`/`error` (avoids per-token UPDATE storms).
+- `client/lib/groq.ts` — direct HTTP calls to Groq. `transcribeAudio`, `chatCompletion`, `chatCompletionStream` (yields token deltas).
+- `client/lib/prompts.ts` — assembles `messages[]` (system + user) for suggestions / expanded-answer / chat from the editable system prompts plus current transcript / chat history / previous batch previews.
+- `client/lib/suggestions.ts` — parse + validate the 3-suggestion JSON (hard-fails on wrong count or unknown type).
+- `client/lib/transcribeFilter.ts` — Whisper phantom denylist (filters "thanks for watching", `[Music]`, short foreign-language drifts).
+- `client/lib/defaults.ts` — editable default prompts + context window sizes.
+- `client/lib/sessionStore.tsx` — reducer + context for transcript, batches, chat, settings, apiKey. No `sessionId` — there is none.
+- `client/lib/export.ts` — serializes React state to the export JSON bundle.
+- `client/hooks/useMediaRecorder.ts` — 30s stop/restart cycle (decision-004).
+- `client/hooks/useSuggestionsPolling.ts` — drives the ~30s refresh + manual refresh; previous-batch previews come from `state.batches[0]` for anti-repetition.
+- `client/hooks/useChatStream.ts` — streams tokens from Groq; on empty/error stream, falls back to the non-streaming endpoint.
 
 ## Evaluation priorities (so you know what to optimize)
 
@@ -58,7 +59,7 @@ In order, from the brief:
 5. **Code quality** — clean, readable, no dead code, useful README.
 6. **Latency** — reload-to-first-suggestions and chat-send-to-first-token are both measured.
 
-When making tradeoffs, prefer what moves (1)–(3) over (4)–(6). Do not over-engineer for scale — this is not a production-readiness eval.
+When making tradeoffs, prefer what moves (1)–(3) over (4)–(6). Do not over-engineer — we already removed the backend for this reason.
 
 ## Agent coordination convention
 
@@ -66,31 +67,18 @@ When running as the coordinating agent, log every plan and major decision to the
 
 ## Commands
 
-### Backend (`server/`)
-
-- `cd server && uv sync` — install deps (first time / after lockfile change).
-- `cd server && uv run uvicorn app.main:app --reload --port 8000` — dev server (frontend expects port 8000).
-- `cd server && uv run pytest -q` — tests (13 currently; pass without a live DB).
-- `cd server && uv run ruff check --fix` — lint + autofix.
-
 ### Frontend (`client/`)
 
 - `cd client && npm install` — install deps.
 - `cd client && npm run dev` — dev server on `http://localhost:3000`.
 - `cd client && npm run typecheck` — `tsc --noEmit`.
-- `cd client && npm test` — vitest run.
-- `cd client && npm run build` — production build (sanity check before deploy).
+- `cd client && npm test` — vitest run (32 tests as of the rip-out).
+- `cd client && npm run build` — production build.
 
 ### Env
 
-- `server/.env` (gitignored): `GROQ_API_KEY` optional dev fallback (production ignores it; always requires the header per `decision-002-api-key-per-request-header`); `DATABASE_URL` (Supabase session-pooler connection string — required); `ENV=dev|prod`; `ALLOWED_ORIGINS` (comma-separated).
-- `client/.env.local`: `NEXT_PUBLIC_API_BASE_URL=http://localhost:8000` for dev; the Cloud Run URL in prod.
-
-### Supabase setup (first time)
-
-Create a project at supabase.com, copy the **session-pooler** connection string into `server/.env` as `DATABASE_URL`, then: `psql -f server/app/sql/schema.sql "$DATABASE_URL"`.
+No `.env` is required — the user pastes their Groq key into Settings at runtime. `client/.env.local` is not used.
 
 ### Deploy
 
-- **Backend → Cloud Run** via the `gcp-deploy` skill at `~/.claude/skills/gcp-deploy/`. Pre-answers per `decision-009-gcp-cloud-run`: region `us-central1`, service `twinmind-backend`, `1Gi`/`1 vCPU`, `min=0`/`max=10` (scale-to-zero), `DATABASE_URL` in Secret Manager.
-- **Frontend → Vercel.** Standard Next.js deploy. Set `NEXT_PUBLIC_API_BASE_URL` to the Cloud Run URL. Remember to add the Vercel origin to the Cloud Run `ALLOWED_ORIGINS` env var.
+- **Frontend → Vercel.** Standard Next.js deploy. Nothing else to deploy.
