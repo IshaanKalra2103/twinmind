@@ -13,7 +13,7 @@ behind every reversal.
 > open-questions, plans) is preserved on Google Drive for anyone who
 > wants the raw trail rather than this distillation:
 >
-> **🔗 [Google Drive — `.agent/` archive](TODO_REPLACE_WITH_DRIVE_LINK)**
+> **🔗 [Google Drive — `.agent/journal/` archive](https://drive.google.com/drive/folders/1tjYUl9wn49lzzgrl5Vepj-gf1_4DhY5X?usp=sharing)**
 >
 > The archive is a *working notebook*, not source. It uses
 > Obsidian-style `[[wikilinks]]`; numbered decisions are immutable
