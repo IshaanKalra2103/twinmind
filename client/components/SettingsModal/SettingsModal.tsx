@@ -142,6 +142,35 @@ export function SettingsModal({
 
           <div className={styles.field}>
             <div className={styles.labelRow}>
+              <label className={styles.label} htmlFor="meetingContext">
+                Meeting context (optional)
+              </label>
+              <button
+                type="button"
+                className={styles.reset}
+                onClick={() => setS((p) => ({ ...p, meetingContext: "" }))}
+              >
+                Clear
+              </button>
+            </div>
+            <textarea
+              id="meetingContext"
+              className={styles.textarea}
+              value={s.meetingContext}
+              placeholder='e.g. "sales discovery call with a fintech prospect" or "PM interviewing a candidate for a senior role"'
+              onChange={(e) =>
+                setS((p) => ({ ...p, meetingContext: e.target.value }))
+              }
+            />
+            <div className={styles.hint}>
+              Injected verbatim into the suggestion prompt. A one-line
+              description of who&apos;s in the meeting and what it&apos;s
+              about noticeably sharpens the cards.
+            </div>
+          </div>
+
+          <div className={styles.field}>
+            <div className={styles.labelRow}>
               <label className={styles.label} htmlFor="liveSuggestionPrompt">
                 Live-suggestion prompt
               </label>

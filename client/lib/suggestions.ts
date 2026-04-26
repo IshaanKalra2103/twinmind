@@ -1,7 +1,9 @@
 /**
  * Parse + validate the JSON response from the live-suggestions prompt.
  * The prompt demands exactly 3 items; anything else throws so the caller
- * can retry or surface an error.
+ * can retry or surface an error. Extra top-level keys (e.g. `reasoning`,
+ * which the prompt asks the model to emit as cheap chain-of-thought) are
+ * intentionally ignored — we only consume `suggestions`.
  */
 
 import type { SuggestionType } from "@/types/api";

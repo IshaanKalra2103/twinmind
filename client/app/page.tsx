@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { TopBar } from "@/components/TopBar/TopBar";
 import { TranscriptPanel } from "@/components/TranscriptPanel/TranscriptPanel";
 import { SuggestionsPanel } from "@/components/SuggestionsPanel/SuggestionsPanel";
@@ -24,6 +24,13 @@ export default function Home() {
 
   const polling = useSuggestionsPolling();
   const chat = useChatStream();
+
+  // Tracks whether we've already kicked off the first-chunk suggestion
+  // refresh for this recording session. Reset each time the mic starts.
+  const firstChunkFiredRef = useRef(false);
+  // `polling.refresh` is stable — captured via ref so onChunk's deps stay tight.
+  const refreshRef = useRef(polling.refresh);
+  refreshRef.current = polling.refresh;
 
   const onChunk = useCallback(
     async ({
@@ -54,6 +61,12 @@ export default function Home() {
           },
         });
         dispatch({ type: "setError", error: null });
+        // First usable transcript line landed — fire suggestions immediately
+        // instead of waiting up to another 30s for the polling interval.
+        if (!firstChunkFiredRef.current) {
+          firstChunkFiredRef.current = true;
+          void refreshRef.current();
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         dispatch({ type: "setError", error: `Transcription failed: ${msg}` });
@@ -81,6 +94,7 @@ export default function Home() {
       setSettingsOpen(true);
       return;
     }
+    firstChunkFiredRef.current = false;
     await start();
     dispatch({ type: "setRecording", recording: true });
   }, [isRecording, hasKey, start, stop, dispatch]);

@@ -55,4 +55,5 @@ export const DEFAULT_SETTINGS: Settings = {
   chatPrompt: DEFAULT_CHAT_PROMPT,
   suggestionContextSegments: DEFAULT_SUGGESTION_SEGMENTS,
   expandedContextSegments: DEFAULT_EXPANDED_SEGMENTS,
+  meetingContext: "",
 };

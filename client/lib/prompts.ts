@@ -23,6 +23,8 @@ export interface SuggestionsPromptArgs {
   transcript: string;
   windowChars: number;
   previousBatchPreviews: string[];
+  /** Optional one-line description of the meeting; injected verbatim. */
+  meetingContext?: string;
   retry?: boolean;
 }
 
@@ -31,6 +33,7 @@ export function buildSuggestionsMessages({
   transcript,
   windowChars,
   previousBatchPreviews,
+  meetingContext,
   retry,
 }: SuggestionsPromptArgs): GroqMessage[] {
   const system = retry ? SUGGESTION_JSON_RETRY_PREFIX + systemPrompt : systemPrompt;
@@ -39,16 +42,18 @@ export function buildSuggestionsMessages({
     previousBatchPreviews.length === 0
       ? "(none — this is the first batch)"
       : previousBatchPreviews.map((p) => `- ${p}`).join("\n");
-  const user = [
+  const ctx = meetingContext?.trim();
+  const parts = [
     "transcript_window:",
     window,
     "---",
     "previous_batch_previews:",
     prev,
-  ].join("\n");
+  ];
+  if (ctx) parts.push("---", "meeting_context:", ctx);
   return [
     { role: "system", content: system },
-    { role: "user", content: user },
+    { role: "user", content: parts.join("\n") },
   ];
 }
 

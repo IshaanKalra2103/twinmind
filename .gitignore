@@ -11,6 +11,8 @@
 # Local tooling workspace — not part of the service.
 .agent/
 issue.md
+# Exported chat-session transcripts left in the repo root by external tools.
+session-*.md
 
 # Secrets — subdirectory .gitignores already cover these; belt + braces.
 .env

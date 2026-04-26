@@ -73,6 +73,10 @@ export interface ChatArgs {
   maxTokens?: number;
   /** Set to force JSON-object output (used for /suggestions). */
   responseFormatJson?: boolean;
+  /** gpt-oss-* reasoning effort. "low" cuts internal CoT tokens
+   *  dramatically — required for structured short outputs (suggestions)
+   *  to keep `max_completion_tokens` from being eaten by reasoning. */
+  reasoningEffort?: "low" | "medium" | "high";
   signal?: AbortSignal;
 }
 
@@ -82,6 +86,7 @@ export async function chatCompletion({
   temperature = 0.4,
   maxTokens,
   responseFormatJson,
+  reasoningEffort,
   signal,
 }: ChatArgs): Promise<string> {
   const body: Record<string, unknown> = {
@@ -92,6 +97,7 @@ export async function chatCompletion({
   };
   if (maxTokens) body.max_tokens = maxTokens;
   if (responseFormatJson) body.response_format = { type: "json_object" };
+  if (reasoningEffort) body.reasoning_effort = reasoningEffort;
 
   const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",
@@ -120,6 +126,7 @@ export async function* chatCompletionStream({
   messages,
   temperature = 0.4,
   maxTokens,
+  reasoningEffort,
   signal,
 }: ChatArgs): AsyncGenerator<string, void, void> {
   const body: Record<string, unknown> = {
@@ -129,6 +136,7 @@ export async function* chatCompletionStream({
     stream: true,
   };
   if (maxTokens) body.max_tokens = maxTokens;
+  if (reasoningEffort) body.reasoning_effort = reasoningEffort;
 
   const res = await fetch(`${GROQ_BASE}/chat/completions`, {
     method: "POST",

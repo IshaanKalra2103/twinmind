@@ -54,6 +54,10 @@ export interface Settings {
   chatPrompt: string;
   suggestionContextSegments: number;
   expandedContextSegments: number;
+  /** Optional one-line description of the meeting (e.g. "sales discovery
+   *  call with a fintech prospect"). Injected verbatim into the suggestion
+   *  prompt when non-empty. */
+  meetingContext: string;
 }
 
 export interface SessionState {
