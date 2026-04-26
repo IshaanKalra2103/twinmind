@@ -6,7 +6,7 @@ transcript. Clicking a card opens a longer-form answer in a right-hand chat
 panel; users can also type questions directly. One continuous chat per
 session. No login, no cross-reload persistence.
 
-- **Live demo:** _Deploying to Vercel — URL added at top after deploy._
+- **Live demo:** https://client-kappa-eight-73.vercel.app — paste your Groq API key in Settings on first load.
 - **Stack:** Next.js 16 + TypeScript + CSS Modules. Groq (Whisper Large V3 + GPT-OSS 120B) called directly from the browser. No backend.
 
 ---
